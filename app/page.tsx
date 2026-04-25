@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useCallback, useReducer } from "react";
 
 const PLATFORM_NAME = "SyncSpace";
 
@@ -20,6 +21,7 @@ export default function HomePage() {
   const [roomId, setRoomId] = useState("");
   const [userName, setUserName] = useState("");
   const [copied, setCopied] = useState(false);
+  const router = useRouter();
 
   const handleGenerate = useCallback(() => {
     setRoomId(generateRoomId());
@@ -39,6 +41,7 @@ export default function HomePage() {
       e.preventDefault();
       if (!roomId.trim() || !userName.trim()) return;
       alert(`Joining room "${roomId}" as "${userName}" on ${PLATFORM_NAME}`);
+      router.push(`/editor/roomId=${encodeURIComponent(roomId)}?user=${encodeURIComponent(userName)}`);
     },
     [roomId, userName]
   );

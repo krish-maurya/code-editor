@@ -1,7 +1,553 @@
-import React from 'react'
+"use client";
 
-export default function EditorPage() {
+import { useState, useRef, useEffect, useCallback } from "react";
+import CodeMirror from "@uiw/react-codemirror";
+import { javascript } from "@codemirror/lang-javascript";
+import { oneDark } from "@codemirror/theme-one-dark";
+import { syncSpaceHighlight, syncSpaceTheme } from "@/theme";
+
+
+// ─── Types ──────────────────────────────────────────────
+type FileNode = { name: string; type: "file" | "folder"; ext?: string; children?: FileNode[] };
+type User = { id: string; name: string; color: string; avatar: string; active: boolean };
+type ChatMsg = { id: string; user: string; color: string; text: string; time: string };
+type Tab = { id: string; name: string; ext: string; dirty: boolean };
+
+// ─── Constants ──────────────────────────────────────────
+const PLATFORM = "SyncSpace";
+
+const USERS: User[] = [
+  { id: "u1", name: "You", color: "#34d399", avatar: "Y", active: true },
+  { id: "u2", name: "Priya M", color: "#f472b6", avatar: "PM", active: true },
+  { id: "u3", name: "Carlos V", color: "#60a5fa", avatar: "CV", active: true },
+  { id: "u4", name: "Yuki T", color: "#fbbf24", avatar: "YT", active: false },
+];
+
+const FILE_TREE: FileNode[] = [
+  {
+    name: "src", type: "folder", children: [
+      {
+        name: "app", type: "folder", children: [
+          { name: "page.tsx", type: "file", ext: "tsx" },
+          { name: "layout.tsx", type: "file", ext: "tsx" },
+          { name: "globals.css", type: "file", ext: "css" },
+        ]
+      },
+      {
+        name: "components", type: "folder", children: [
+          { name: "Editor.tsx", type: "file", ext: "tsx" },
+          { name: "Sidebar.tsx", type: "file", ext: "tsx" },
+          { name: "JoinRoom.tsx", type: "file", ext: "tsx" },
+        ]
+      },
+      {
+        name: "lib", type: "folder", children: [
+          { name: "utils.ts", type: "file", ext: "ts" },
+          { name: "socket.ts", type: "file", ext: "ts" },
+        ]
+      },
+    ]
+  },
+  {
+    name: "public", type: "folder", children: [
+      { name: "favicon.ico", type: "file", ext: "ico" },
+    ]
+  },
+  { name: "package.json", type: "file", ext: "json" },
+  { name: "tailwind.config.ts", type: "file", ext: "ts" },
+  { name: "tsconfig.json", type: "file", ext: "json" },
+];
+
+const INIT_TABS: Tab[] = [
+  { id: "t1", name: "page.tsx", ext: "tsx", dirty: false },
+  { id: "t2", name: "Editor.tsx", ext: "tsx", dirty: true },
+  { id: "t3", name: "socket.ts", ext: "ts", dirty: false },
+];
+
+const INIT_CHAT: ChatMsg[] = [
+  { id: "c1", user: "Carlos V", color: "#60a5fa", text: "just pushed the socket reconnect fix 🔧", time: "14:02" },
+  { id: "c2", user: "Priya M", color: "#f472b6", text: "nice! checking the useEffect cleanup now", time: "14:03" },
+  { id: "c3", user: "Carlos V", color: "#60a5fa", text: "also the cursor broadcast is lagging on line 87", time: "14:04" },
+  { id: "c4", user: "You", color: "#34d399", text: "on it — debouncing the emit call", time: "14:05" },
+];
+
+const CODE_CONTENT = `"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { io, Socket } from "socket.io-client";
+
+interface EditorProps {
+  roomId: string;
+  userName: string;
+}
+
+export default function Editor({ roomId, userName }: EditorProps) {
+  const socketRef = useRef<Socket | null>(null);
+  const [code, setCode] = useState<string>("");
+  const [cursors, setCursors] = useState<Record<string, number>>({});
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    socketRef.current = io(process.env.NEXT_PUBLIC_WS_URL!, {
+      query: { roomId, userName },
+      reconnectionAttempts: 5,
+    });
+
+    const socket = socketRef.current;
+
+    socket.on("connect", () => setConnected(true));
+    socket.on("disconnect", () => setConnected(false));
+
+    socket.on("code:sync", (incoming: string) => {
+      setCode(incoming);
+    });
+
+    socket.on("cursor:update", (data: { user: string; pos: number }) => {
+      setCursors((prev) => ({ ...prev, [data.user]: data.pos }));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [roomId, userName]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setCode(val);
+    socketRef.current?.emit("code:change", { roomId, code: val });
+  };
+
+  const handleCursorMove = (e: React.MouseEvent<HTMLTextAreaElement>) => {
+    const pos = (e.target as HTMLTextAreaElement).selectionStart;
+    socketRef.current?.emit("cursor:move", { roomId, userName, pos });
+  };
+
   return (
-    <div>EditorPage</div>
-  )
+    <div className="relative h-full w-full">
+      <textarea
+        value={code}
+        onChange={handleChange}
+        onClick={handleCursorMove}
+        onKeyUp={handleCursorMove}
+        className="w-full h-full bg-transparent resize-none outline-none
+                   font-mono text-sm text-gray-200 p-4 leading-6"
+        spellCheck={false}
+      />
+      <div className="absolute top-2 right-3 flex items-center gap-1.5">
+        <span className={\`w-1.5 h-1.5 rounded-full \${connected ? "bg-emerald-400" : "bg-red-500"}\`} />
+        <span className="text-xs text-gray-600">{connected ? "live" : "offline"}</span>
+      </div>
+    </div>
+  );
+}`;
+
+const TERMINAL_LINES = [
+  { t: "cmd", v: "$ npm run dev" },
+  { t: "info", v: "▸ Next.js 15.2.0" },
+  { t: "info", v: "▸ Local:   http://localhost:3000" },
+  { t: "info", v: "▸ Network: http://192.168.1.5:3000" },
+  { t: "ok", v: "✓ Ready in 847ms" },
+  { t: "log", v: "[socket] client u2 joined room XKCD-9A3F-B71E" },
+  { t: "log", v: "[socket] client u3 joined room XKCD-9A3F-B71E" },
+  { t: "warn", v: "⚠ cursor broadcast debounce: 120ms → consider 60ms" },
+];
+
+// ─── Helpers ────────────────────────────────────────────
+const EXT_COLOR: Record<string, string> = {
+  tsx: "text-sky-400", ts: "text-blue-400", css: "text-pink-400",
+  json: "text-yellow-400", ico: "text-gray-500",
+};
+const extColor = (ext = "") => EXT_COLOR[ext] ?? "text-gray-400";
+
+const EXT_DOT: Record<string, string> = {
+  tsx: "bg-sky-400", ts: "bg-blue-400", css: "bg-pink-400",
+  json: "bg-yellow-400",
+};
+const extDot = (ext = "") => EXT_DOT[ext] ?? "bg-gray-500";
+
+function FileIcon({ ext }: { ext?: string }) {
+  const c = extColor(ext);
+  return <span className={`text-xs font-bold font-mono ${c}`}>{(ext ?? "?").slice(0, 3)}</span>;
+}
+
+// ─── Sub-components ─────────────────────────────────────
+function FileTree({ nodes, depth = 0, onOpen }: { nodes: FileNode[]; depth?: number; onOpen: (n: FileNode) => void }) {
+  const [open, setOpen] = useState<Set<string>>(new Set(["src", "components"]));
+  return (
+    <ul className="text-xs leading-none">
+      {nodes.map((n) => (
+        <li key={n.name}>
+          {n.type === "folder" ? (
+            <>
+              <button
+                onClick={() => setOpen((p) => {
+                  const s = new Set(p);
+                  if (s.has(n.name)) {
+                    s.delete(n.name);
+                  } else {
+                    s.add(n.name);
+                  }
+                  return s;
+                })}
+                style={{ paddingLeft: `${depth * 12 + 8}px` }}
+                className="flex items-center gap-1.5 w-full py-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 rounded transition"
+              >
+                <span className="text-gray-600">{open.has(n.name) ? "▾" : "▸"}</span>
+                <span className="text-gray-500">📁</span>
+                <span>{n.name}</span>
+              </button>
+              {open.has(n.name) && n.children && (
+                <FileTree nodes={n.children} depth={depth + 1} onOpen={onOpen} />
+              )}
+            </>
+          ) : (
+            <button
+              onClick={() => onOpen(n)}
+              style={{ paddingLeft: `${depth * 12 + 8}px` }}
+              className="flex items-center gap-1.5 w-full py-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 rounded transition"
+            >
+              <span className="w-3" />
+              <FileIcon ext={n.ext} />
+              <span className="truncate">{n.name}</span>
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ─── Main Page ──────────────────────────────────────────
+export default function CollabEditorPage({ params }: { params: { roomId: string, user: string } }) {
+  const [tabs, setTabs] = useState<Tab[]>(INIT_TABS);
+  const [activeTab, setActiveTab] = useState("t2");
+  const [code, setCode] = useState(CODE_CONTENT);
+  const [chatInput, setChatInput] = useState("");
+  const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>(INIT_CHAT);
+  const [termOpen, setTermOpen] = useState(true);
+  const [sidePanel, setSidePanel] = useState<"files" | "users" | "chat">("files");
+  const [leftWidth] = useState(220);
+  const [cursor, setCursor] = useState({ line: 1, col: 1 });
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const roomId = params?.roomId ?? "XKCD-9A3F-B71E";
+
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMsgs]);
+
+  const sendChat = useCallback(() => {
+    if (!chatInput.trim()) return;
+    setChatMsgs((p) => [...p, {
+      id: `c${Date.now()}`, user: "You", color: "#34d399",
+      text: chatInput.trim(),
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    }]);
+    setChatInput("");
+  }, [chatInput]);
+
+  const openFile = (n: FileNode) => {
+    if (tabs.find((t) => t.name === n.name)) {
+      setActiveTab(tabs.find((t) => t.name === n.name)!.id);
+      return;
+    }
+    const id = `t${Date.now()}`;
+    setTabs((p) => [...p, { id, name: n.name, ext: n.ext ?? "", dirty: false }]);
+    setActiveTab(id);
+  };
+
+  const closeTab = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = tabs.filter((t) => t.id !== id);
+    setTabs(next);
+    if (activeTab === id) setActiveTab(next[next.length - 1]?.id ?? "");
+  };
+
+  const activeTabData = tabs.find((t) => t.id === activeTab);
+
+  return (
+    <div className="flex flex-col h-screen bg-[#0d1117] text-gray-300 overflow-hidden font-['JetBrains_Mono',monospace] select-none">
+
+      {/* ── TOP BAR ── */}
+      <header className="flex items-center justify-between px-4 h-11 bg-[#161b22] border-b border-gray-800 shrink-0 z-10">
+        {/* Left: logo + room */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-emerald-400 text-xs font-bold tracking-widest uppercase">{PLATFORM}</span>
+          </div>
+          <span className="text-gray-700">|</span>
+          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded font-mono">{roomId}</span>
+        </div>
+
+        {/* Center: user avatars */}
+        <div className="flex items-center gap-1">
+          {USERS.map((u) => (
+            <div key={u.id} title={u.name} className="relative">
+              <div
+                className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-gray-900"
+                style={{ backgroundColor: u.active ? u.color : "#374151" }}
+              >
+                {u.avatar}
+              </div>
+              {u.active && (
+                <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 ring-1 ring-[#161b22]" />
+              )}
+            </div>
+          ))}
+          <span className="text-xs text-gray-600 ml-1">{USERS.filter((u) => u.active).length} online</span>
+        </div>
+
+        {/* Right: actions */}
+        <div className="flex items-center gap-2">
+          <button className="text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-md transition">Share</button>
+          <button className="text-xs text-emerald-900 bg-emerald-500 hover:bg-emerald-400 px-3 py-1 rounded-md font-bold transition text-gray-950">
+            Run ▶
+          </button>
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* ── ICON RAIL ── */}
+        <div className="flex flex-col items-center gap-1 w-10 bg-[#161b22] border-r border-gray-800 py-2 shrink-0">
+          {(["files", "users", "chat"] as const).map((p) => {
+            const icons = { files: "🗂", users: "👥", chat: "💬" };
+            return (
+              <button
+                key={p}
+                onClick={() => setSidePanel(p)}
+                title={p}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center text-base transition
+                  ${sidePanel === p ? "bg-gray-700 text-white" : "text-gray-600 hover:text-gray-300 hover:bg-gray-800"}`}
+              >
+                {icons[p]}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── LEFT SIDEBAR ── */}
+        <div
+          className="bg-[#161b22] border-r border-gray-800 flex flex-col shrink-0 overflow-hidden"
+          style={{ width: leftWidth }}
+        >
+          <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
+            <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600">
+              {sidePanel}
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto py-1 scrollbar-thin">
+            {sidePanel === "files" && (
+              <FileTree nodes={FILE_TREE} onOpen={openFile} />
+            )}
+
+            {sidePanel === "users" && (
+              <div className="p-2 flex flex-col gap-1">
+                {USERS.map((u) => (
+                  <div key={u.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-gray-800/40">
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-gray-900 shrink-0"
+                      style={{ backgroundColor: u.active ? u.color : "#374151" }}
+                    >
+                      {u.avatar}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-300 truncate">{u.name}</p>
+                      <p className="text-[10px] text-gray-600">{u.active ? "editing" : "away"}</p>
+                    </div>
+                    {u.active && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: u.color }} />}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {sidePanel === "chat" && (
+              <div className="flex flex-col h-full">
+                <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
+                  {chatMsgs.map((m) => (
+                    <div key={m.id}>
+                      <div className="flex items-baseline gap-1.5 mb-0.5">
+                        <span className="text-[10px] font-bold" style={{ color: m.color }}>{m.user}</span>
+                        <span className="text-[9px] text-gray-700">{m.time}</span>
+                      </div>
+                      <p className="text-[11px] text-gray-400 leading-relaxed">{m.text}</p>
+                    </div>
+                  ))}
+                  <div ref={chatEndRef} />
+                </div>
+                <div className="p-2 border-t border-gray-800">
+                  <div className="flex gap-1">
+                    <input
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && sendChat()}
+                      placeholder="Message..."
+                      className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-[11px] text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-600 transition min-w-0"
+                    />
+                    <button
+                      onClick={sendChat}
+                      className="px-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-[11px] font-bold text-gray-950 transition"
+                    >
+                      →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── EDITOR AREA ── */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+
+          {/* Tab bar */}
+          <div className="flex items-end bg-[#161b22] border-b border-gray-800 shrink-0 overflow-x-auto">
+            {tabs.map((t) => (
+              <div
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 border-r border-gray-800 cursor-pointer text-xs shrink-0 transition
+                  ${activeTab === t.id
+                    ? "bg-[#0d1117] text-gray-200 border-t-2 border-t-emerald-500"
+                    : "text-gray-600 hover:text-gray-400 hover:bg-[#0d1117]/60"}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${extDot(t.ext)}`} />
+                <span className="font-mono">{t.name}</span>
+                {t.dirty && <span className="text-orange-400 text-[10px]">●</span>}
+                <button
+                  onClick={(e) => closeTab(t.id, e)}
+                  className="ml-1 text-gray-700 hover:text-gray-300 text-[10px] leading-none"
+                >✕</button>
+              </div>
+            ))}
+            <div className="flex-1" />
+            {/* Breadcrumb */}
+            {activeTabData && (
+              <div className="px-4 text-[10px] text-gray-700 shrink-0 whitespace-nowrap">
+                src / components / <span className={extColor(activeTabData.ext)}>{activeTabData.name}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Code + Terminal */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Code view */}
+            <div className="flex-1 overflow-hidden relative">
+              {/* Remote cursor badge */}
+              <div className="absolute top-3 right-4 flex gap-1.5 z-10">
+                {USERS.filter((u) => u.active && u.id !== "u1").map((u) => (
+                  <span
+                    key={u.id}
+                    className="text-[9px] font-bold px-1.5 py-0.5 rounded text-gray-900"
+                    style={{ backgroundColor: u.color }}
+                  >
+                    {u.name}
+                  </span>
+                ))}
+              </div>
+
+              <CodeMirror
+                value={code}
+                height="100%"
+                extensions={[javascript({ jsx: true, typescript: true }), syncSpaceTheme,
+                  syncSpaceHighlight]}
+                basicSetup={{
+                  lineNumbers: true,
+                  foldGutter: true,
+                  highlightActiveLine: true,
+                  highlightActiveLineGutter: true,
+                }}
+                onChange={(value) => setCode(value)}
+                onUpdate={(viewUpdate) => {
+                  if (!viewUpdate.selectionSet && !viewUpdate.docChanged) return;
+                  const head = viewUpdate.state.selection.main.head;
+                  const line = viewUpdate.state.doc.lineAt(head);
+                  setCursor({ line: line.number, col: head - line.from + 1 });
+                }}
+                className="h-full text-xs"
+              />
+            </div>
+
+            {/* Terminal */}
+            <div className={`shrink-0 border-t border-gray-800 bg-[#0a0f14] transition-all ${termOpen ? "h-44" : "h-8"}`}>
+              <div
+                className="flex items-center gap-3 px-4 h-8 border-b border-gray-800 cursor-pointer hover:bg-gray-800/40 transition"
+                onClick={() => setTermOpen((p) => !p)}
+              >
+                <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600">Terminal</span>
+                <span className="text-[9px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">npm run dev</span>
+                <div className="flex-1" />
+                <span className="text-gray-700 text-xs">{termOpen ? "▾" : "▴"}</span>
+              </div>
+              {termOpen && (
+                <div className="p-3 overflow-y-auto h-36 text-[11px] leading-5 font-mono">
+                  {TERMINAL_LINES.map((l, i) => (
+                    <div key={i} className={
+                      l.t === "cmd" ? "text-white" :
+                        l.t === "info" ? "text-gray-500" :
+                          l.t === "ok" ? "text-emerald-400" :
+                            l.t === "warn" ? "text-yellow-400" :
+                              "text-gray-600"
+                    }>{l.v}</div>
+                  ))}
+                  <div className="flex items-center gap-1 mt-1">
+                    <span className="text-emerald-400">$</span>
+                    <span className="w-1.5 h-3.5 bg-emerald-400 animate-pulse inline-block ml-0.5" />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── RIGHT PANEL: live chat always visible ── */}
+        <div className="w-60 bg-[#161b22] border-l border-gray-800 flex flex-col shrink-0">
+          <div className="px-3 py-2 border-b border-gray-800">
+            <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600">Live Chat</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+            {chatMsgs.map((m) => (
+              <div key={m.id}>
+                <div className="flex items-baseline gap-1.5 mb-0.5">
+                  <span className="text-[10px] font-bold" style={{ color: m.color }}>{m.user}</span>
+                  <span className="text-[9px] text-gray-700">{m.time}</span>
+                </div>
+                <p className="text-[11px] text-gray-400 leading-relaxed">{m.text}</p>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+          <div className="p-3 border-t border-gray-800">
+            <div className="flex gap-1.5">
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendChat()}
+                placeholder="Send a message…"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-[11px] text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-600 transition min-w-0"
+              />
+              <button
+                onClick={sendChat}
+                className="px-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold text-gray-950 transition"
+              >→</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── STATUS BAR ── */}
+      <footer className="h-6 bg-emerald-600 flex items-center px-4 gap-4 shrink-0">
+        <span className="text-[10px] font-bold text-emerald-950">⎇ main</span>
+        <span className="text-[10px] text-emerald-800">|</span>
+        <span className="text-[10px] text-emerald-900">TypeScript · TSX</span>
+        <span className="text-[10px] text-emerald-800">|</span>
+        <span className="text-[10px] text-emerald-900">Ln {cursor.line}, Col {cursor.col}</span>
+        <div className="flex-1" />
+        <span className="text-[10px] text-emerald-900">
+          {USERS.filter((u) => u.active).length} collaborators · {PLATFORM}
+        </span>
+        <span className="text-[10px] text-emerald-800">|</span>
+        <span className="text-[10px] text-emerald-950 font-bold">● Live</span>
+      </footer>
+    </div>
+  );
 }
