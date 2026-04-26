@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import CodeMirror from "@uiw/react-codemirror";
-import { javascript } from "@codemirror/lang-javascript";
-import { oneDark } from "@codemirror/theme-one-dark";
+import ACTIONS from "@/server/Actions";
+import { initSocket } from "@/server/socket";
 import { syncSpaceHighlight, syncSpaceTheme } from "@/theme";
+import { javascript } from "@codemirror/lang-javascript";
+import CodeMirror from "@uiw/react-codemirror";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { use, useCallback, useEffect, useRef, useState } from "react";
+import toast from "react-hot-toast";
 
 
 // ─── Types ──────────────────────────────────────────────
@@ -16,12 +19,14 @@ type Tab = { id: string; name: string; ext: string; dirty: boolean };
 // ─── Constants ──────────────────────────────────────────
 const PLATFORM = "SyncSpace";
 
-const USERS: User[] = [
-  { id: "u1", name: "You", color: "#34d399", avatar: "Y", active: true },
-  { id: "u2", name: "Priya M", color: "#f472b6", avatar: "PM", active: true },
-  { id: "u3", name: "Carlos V", color: "#60a5fa", avatar: "CV", active: true },
-  { id: "u4", name: "Yuki T", color: "#fbbf24", avatar: "YT", active: false },
-];
+const colors = ["#34d399", "#f472b6", "#60a5fa", "#fbbf24", "#a78bfa", "#67e8f9", "#f87171", "#6ee7b7"];
+
+// const USERS: User[] = [
+//   { id: "u1", name: "You", color: "#34d399", avatar: "Y", active: true },
+//   { id: "u2", name: "Priya M", color: "#f472b6", avatar: "PM", active: true },
+//   { id: "u3", name: "Carlos V", color: "#60a5fa", avatar: "CV", active: true },
+//   { id: "u4", name: "Yuki T", color: "#fbbf24", avatar: "YT", active: false },
+// ];
 
 const FILE_TREE: FileNode[] = [
   {
@@ -218,7 +223,7 @@ function FileTree({ nodes, depth = 0, onOpen }: { nodes: FileNode[]; depth?: num
 }
 
 // ─── Main Page ──────────────────────────────────────────
-export default function CollabEditorPage({ params }: { params: { roomId: string, user: string } }) {
+export default function CollabEditorPage() {
   const [tabs, setTabs] = useState<Tab[]>(INIT_TABS);
   const [activeTab, setActiveTab] = useState("t2");
   const [code, setCode] = useState(CODE_CONTENT);
@@ -228,8 +233,69 @@ export default function CollabEditorPage({ params }: { params: { roomId: string,
   const [sidePanel, setSidePanel] = useState<"files" | "users" | "chat">("files");
   const [leftWidth] = useState(220);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
+  const [USERS, setUSERS] = useState<User[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const roomId = params?.roomId ?? "XKCD-9A3F-B71E";
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const roomId = params.roomId as string;
+  const user = searchParams.get("user");
+
+  if (!roomId || !user) {
+    router.push('/');
+    return null;
+  }
+
+  const socketRef = useRef<any>(null);
+
+  function getAvatar(name: string) {
+    const parts = name.trim().split(" ").filter(Boolean);
+
+    if (parts.length >= 2) {
+      return (
+        parts[0][0] +
+        parts[parts.length - 1][0]
+      ).toUpperCase();
+    }
+
+    return name.trim().slice(0, 2).toUpperCase();
+  }
+
+  useEffect(() => {
+    const init = async () => {
+
+      const handleErrors = (err: any) => {
+        console.log("socket connect failed , try aging", err);
+        router.push('/'); // redirect to home page to join again
+      }
+
+      socketRef.current = await initSocket();
+      socketRef.current.on('connect_error', (err: any) => { handleErrors(err) });
+      socketRef.current.on('connect_failed', (err: any) => { handleErrors(err) });
+      socketRef.current.on(ACTIONS.JOINED, ({ clients, userName, socketId }: { clients: any[], userName: string, socketId: string }) => {
+        console.log("JOINED EVENT:", clients);
+        if (userName !== user) {
+          toast.success(`${userName} joined the room!`, {
+            icon: "👋",
+          });
+        }
+        setUSERS(clients.map((c) => {
+          return {
+            id: c.socketId,
+            name: c.userName,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            avatar: getAvatar(c.userName),
+            active: true,
+          }
+        }));
+      });
+      socketRef.current.emit(ACTIONS.JOIN, { roomId: roomId, userName: user ?? "Anonymous" });
+    }
+
+
+    init();
+  }, []);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMsgs]);
 
@@ -434,7 +500,7 @@ export default function CollabEditorPage({ params }: { params: { roomId: string,
             <div className="flex-1 overflow-hidden relative">
               {/* Remote cursor badge */}
               <div className="absolute top-3 right-4 flex gap-1.5 z-10">
-                {USERS.filter((u) => u.active && u.id !== "u1").map((u) => (
+                {USERS.filter((u) => u.active && u.name !== user).map((u) => (
                   <span
                     key={u.id}
                     className="text-[9px] font-bold px-1.5 py-0.5 rounded text-gray-900"

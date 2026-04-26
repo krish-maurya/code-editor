@@ -41,7 +41,7 @@ export default function HomePage() {
       e.preventDefault();
       if (!roomId.trim() || !userName.trim()) return;
       alert(`Joining room "${roomId}" as "${userName}" on ${PLATFORM_NAME}`);
-      router.push(`/editor/roomId=${encodeURIComponent(roomId)}?user=${encodeURIComponent(userName)}`);
+      router.push(`/editor/${roomId}?user=${userName}`);
     },
     [roomId, userName]
   );
@@ -125,7 +125,7 @@ export default function HomePage() {
               type="text"
               value={userName}
               onChange={(e) => setUserName(e.target.value)}
-              placeholder="e.g. sonic_dev"
+              placeholder="e.g. sonic dev"
               autoComplete="off"
               className="bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm placeholder-gray-600 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
             />
