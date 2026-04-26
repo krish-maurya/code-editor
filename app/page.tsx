@@ -40,7 +40,6 @@ export default function HomePage() {
     (e: React.MouseEvent<HTMLButtonElement>) => {
       e.preventDefault();
       if (!roomId.trim() || !userName.trim()) return;
-      alert(`Joining room "${roomId}" as "${userName}" on ${PLATFORM_NAME}`);
       router.push(`/editor/${roomId}?user=${userName}`);
     },
     [roomId, userName]

@@ -364,7 +364,7 @@ export default function CollabEditorPage() {
         {/* Right: actions */}
         <div className="flex items-center gap-2">
           <button className="text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-md transition">Share</button>
-          <button className="text-xs text-emerald-900 bg-emerald-500 hover:bg-emerald-400 px-3 py-1 rounded-md font-bold transition text-gray-950">
+          <button className="text-xs text-emerald-900 bg-emerald-500 hover:bg-emerald-400 px-3 py-1 rounded-md font-bold transition">
             Run ▶
           </button>
         </div>
