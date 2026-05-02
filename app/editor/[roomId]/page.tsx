@@ -235,6 +235,7 @@ export default function CollabEditorPage() {
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [USERS, setUSERS] = useState<User[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<any>(null);
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -273,6 +274,9 @@ export default function CollabEditorPage() {
       socketRef.current = await initSocket();
       socketRef.current.on('connect_error', (err: any) => { handleErrors(err) });
       socketRef.current.on('connect_failed', (err: any) => { handleErrors(err) });
+
+      // Listen for the "JOINED" event from the server
+
       socketRef.current.on(ACTIONS.JOINED, ({ clients, userName, socketId }: { clients: any[], userName: string, socketId: string }) => {
         console.log("JOINED EVENT:", clients);
         if (userName !== user) {
@@ -290,11 +294,27 @@ export default function CollabEditorPage() {
           }
         }));
       });
+
+      // Listen for the "DISCONNECTED" event from the server
+
+      socketRef.current.on(ACTIONS.DISCONNECTED, ({ socketId, userName }: { socketId: string, userName: string }) => {
+        toast.success(`${userName} left the room!`, {
+          icon: "👋",
+        });
+        setUSERS((p) => p.filter((u) => u.id !== socketId));
+      });
       socketRef.current.emit(ACTIONS.JOIN, { roomId: roomId, userName: user ?? "Anonymous" });
     }
 
 
     init();
+
+    return () => {
+      socketRef.current?.off(ACTIONS.JOINED);
+      socketRef.current?.off(ACTIONS.DISCONNECTED);
+      socketRef.current?.disconnect();
+    }
+
   }, []);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMsgs]);
@@ -521,6 +541,9 @@ export default function CollabEditorPage() {
                   foldGutter: true,
                   highlightActiveLine: true,
                   highlightActiveLineGutter: true,
+                }}
+                onCreateEditor={(editor) => {
+                  editorRef.current = editor;
                 }}
                 onChange={(value) => setCode(value)}
                 onUpdate={(viewUpdate) => {

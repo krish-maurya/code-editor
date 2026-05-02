@@ -3,6 +3,7 @@ import http from "http";
 import { Server } from "socket.io";
 import type { Request, Response } from "express";
 import ACTIONS from "./Actions";
+import { scopeCompletionSource } from "@codemirror/lang-javascript";
 
 const app = express();
 const server = http.createServer(app);
@@ -22,8 +23,8 @@ const userSocketMap: Record<string, string> = {};
 
 
 function getAllConnectedClients(roomId: string) {
-  return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map((socketId)=>{
-    return{
+  return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map((socketId) => {
+    return {
       socketId,
       userName: userSocketMap[socketId]
     }
@@ -37,13 +38,28 @@ io.on("connection", (socket) => {
     userSocketMap[socket.id] = userName;
     socket.join(roomId);
     const clients = getAllConnectedClients(roomId);
-    clients.forEach(({socketId})=>{
-      io.to(socketId).emit(ACTIONS.JOINED,{
+    clients.forEach(({ socketId }) => {
+      io.to(socketId).emit(ACTIONS.JOINED, {
         clients,
         userName,
         socketId: socket.id,
-      }) 
+      })
     })
+  })
+
+  socket.on("disconnecting", () => {
+    const rooms = [...socket.rooms];
+
+
+    rooms.forEach((roomId) => {
+      if (roomId !== socket.id) {
+        socket.in(roomId).emit(ACTIONS.DISCONNECTED, {
+          socketId: socket.id,
+          userName: userSocketMap[socket.id]
+        })
+      }
+    })
+    delete userSocketMap[socket.id];
   })
 });
 
