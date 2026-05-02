@@ -3,7 +3,6 @@ import http from "http";
 import { Server } from "socket.io";
 import type { Request, Response } from "express";
 import ACTIONS from "./Actions";
-import { scopeCompletionSource } from "@codemirror/lang-javascript";
 
 const app = express();
 const server = http.createServer(app);
@@ -20,6 +19,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 const userSocketMap: Record<string, string> = {};
+const roomCodeMap: Record<string, string> = {};
 
 
 function getAllConnectedClients(roomId: string) {
@@ -45,6 +45,12 @@ io.on("connection", (socket) => {
         socketId: socket.id,
       })
     })
+
+    if (roomCodeMap[roomId]) {
+      socket.emit(ACTIONS.SYNC_CODE, {
+        code: roomCodeMap[roomId]
+      })
+    }
   })
 
   socket.on("disconnecting", () => {
@@ -61,6 +67,27 @@ io.on("connection", (socket) => {
     })
     delete userSocketMap[socket.id];
   })
+
+  socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
+
+    roomCodeMap[roomId] = code;
+
+    socket.to(roomId).emit(ACTIONS.SYNC_CODE, {
+      code,
+    })
+  });
+
+  socket.on(ACTIONS.LEAVE, ({ roomId }) => {
+    socket.leave(roomId);
+    delete userSocketMap[socket.id];
+    const clients = getAllConnectedClients(roomId);
+    clients.forEach(({ socketId }) => {
+      io.to(socketId).emit(ACTIONS.DISCONNECTED, {
+        socketId: socket.id,
+        userName: userSocketMap[socket.id]
+      })
+    });
+  });
 });
 
 const PORT = 5000;

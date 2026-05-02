@@ -230,6 +230,8 @@ export default function CollabEditorPage() {
   const [chatInput, setChatInput] = useState("");
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>(INIT_CHAT);
   const [termOpen, setTermOpen] = useState(true);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [sidePanel, setSidePanel] = useState<"files" | "users" | "chat">("files");
   const [leftWidth] = useState(220);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
@@ -303,6 +305,18 @@ export default function CollabEditorPage() {
         });
         setUSERS((p) => p.filter((u) => u.id !== socketId));
       });
+
+      // code sync and cursor updates will be handled in separate useEffects
+
+      socketRef.current.on(ACTIONS.SYNC_CODE, ({ code }: { code: string }) => {
+        if (!editorRef.current) return;
+        const currentCode = editorRef.current?.state.doc.toString();
+
+        if (code !== currentCode) {
+          setCode(code);
+        }
+      })
+
       socketRef.current.emit(ACTIONS.JOIN, { roomId: roomId, userName: user ?? "Anonymous" });
     }
 
@@ -312,6 +326,7 @@ export default function CollabEditorPage() {
     return () => {
       socketRef.current?.off(ACTIONS.JOINED);
       socketRef.current?.off(ACTIONS.DISCONNECTED);
+      socketRef.current?.off(ACTIONS.CODE_CHANGE);
       socketRef.current?.disconnect();
     }
 
@@ -348,6 +363,31 @@ export default function CollabEditorPage() {
 
   const activeTabData = tabs.find((t) => t.id === activeTab);
 
+  const handleShare = () => {
+    try {
+      navigator.clipboard.writeText(roomId).then(() => {
+        toast.success("Room URL copied to clipboard!", {
+          icon: "🔗",
+        });
+      });
+    } catch (error) {
+      toast.error("Failed to copy room URL.", {
+        icon: "❌",
+      });
+    }
+  };
+
+  const handleLeave = () =>{
+    if (socketRef.current) {
+      socketRef.current.emit(ACTIONS.LEAVE, { roomId, userName: user });
+      socketRef.current.disconnect();
+      router.push('/');
+      toast.success("You left the room.", {
+        icon: "👋"
+        }); 
+    }
+  }
+
   return (
     <div className="flex flex-col h-screen bg-[#0d1117] text-gray-300 overflow-hidden font-['JetBrains_Mono',monospace] select-none">
 
@@ -383,7 +423,8 @@ export default function CollabEditorPage() {
 
         {/* Right: actions */}
         <div className="flex items-center gap-2">
-          <button className="text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-md transition">Share</button>
+          <button onClick={handleLeave} className="text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-md transition">Leave</button>
+          <button onClick={handleShare} className="text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-md transition">Share</button>
           <button className="text-xs text-emerald-900 bg-emerald-500 hover:bg-emerald-400 px-3 py-1 rounded-md font-bold transition">
             Run ▶
           </button>
@@ -399,7 +440,10 @@ export default function CollabEditorPage() {
             return (
               <button
                 key={p}
-                onClick={() => setSidePanel(p)}
+                onClick={() => {
+                  setSidePanel(p);
+                  setLeftPanelOpen(true);
+                }}
                 title={p}
                 className={`w-8 h-8 rounded-lg flex items-center justify-center text-base transition
                   ${sidePanel === p ? "bg-gray-700 text-white" : "text-gray-600 hover:text-gray-300 hover:bg-gray-800"}`}
@@ -412,16 +456,19 @@ export default function CollabEditorPage() {
 
         {/* ── LEFT SIDEBAR ── */}
         <div
-          className="bg-[#161b22] border-r border-gray-800 flex flex-col shrink-0 overflow-hidden"
-          style={{ width: leftWidth }}
+          className="bg-[#161b22] border-r border-gray-800 flex flex-col shrink-0 overflow-hidden transition-all duration-300"
+          style={{ width: leftPanelOpen ? leftWidth : 0 }}
         >
-          <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
-            <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600">
-              {sidePanel}
-            </span>
+          <div
+            className="px-3 py-2 border-b border-gray-800 flex items-center justify-between cursor-pointer hover:bg-gray-800/40 transition"
+            onClick={() => setLeftPanelOpen((p) => !p)}
+            title={leftPanelOpen ? "Collapse panel" : "Expand panel"}
+          >
+            <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600 whitespace-nowrap">{sidePanel}</span>
+            <span className="text-xs text-gray-700">{leftPanelOpen ? "◂" : "▸"}</span>
           </div>
 
-          <div className="flex-1 overflow-y-auto py-1 scrollbar-thin">
+          {leftPanelOpen && <div className="flex-1 overflow-y-auto py-1 scrollbar-thin">
             {sidePanel === "files" && (
               <FileTree nodes={FILE_TREE} onOpen={openFile} />
             )}
@@ -479,7 +526,7 @@ export default function CollabEditorPage() {
                 </div>
               </div>
             )}
-          </div>
+          </div>}
         </div>
 
         {/* ── EDITOR AREA ── */}
@@ -545,7 +592,13 @@ export default function CollabEditorPage() {
                 onCreateEditor={(editor) => {
                   editorRef.current = editor;
                 }}
-                onChange={(value) => setCode(value)}
+                onChange={(value) => {
+                  setCode(value);
+                  socketRef.current.emit(ACTIONS.CODE_CHANGE, {
+                    roomId,
+                    code: value,
+                  })
+                }}
                 onUpdate={(viewUpdate) => {
                   if (!viewUpdate.selectionSet && !viewUpdate.docChanged) return;
                   const head = viewUpdate.state.selection.main.head;
@@ -589,11 +642,21 @@ export default function CollabEditorPage() {
         </div>
 
         {/* ── RIGHT PANEL: live chat always visible ── */}
-        <div className="w-60 bg-[#161b22] border-l border-gray-800 flex flex-col shrink-0">
-          <div className="px-3 py-2 border-b border-gray-800">
-            <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600">Live Chat</span>
+        <div
+          className="bg-[#161b22] border-l border-gray-800 flex flex-col shrink-0 overflow-hidden transition-all duration-300"
+          style={{ width: rightPanelOpen ? 240 : 36 }}
+        >
+          <div
+            className="px-3 py-2 border-b border-gray-800 flex items-center justify-between cursor-pointer hover:bg-gray-800/40 transition"
+            onClick={() => setRightPanelOpen((p) => !p)}
+            title={rightPanelOpen ? "Collapse chat" : "Expand chat"}
+          >
+            <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600 whitespace-nowrap">
+              {rightPanelOpen ? "Live Chat" : "LC"}
+            </span>
+            <span className="text-xs text-gray-700">{rightPanelOpen ? "▸" : "◂"}</span>
           </div>
-          <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+          {rightPanelOpen && <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
             {chatMsgs.map((m) => (
               <div key={m.id}>
                 <div className="flex items-baseline gap-1.5 mb-0.5">
@@ -604,8 +667,8 @@ export default function CollabEditorPage() {
               </div>
             ))}
             <div ref={chatEndRef} />
-          </div>
-          <div className="p-3 border-t border-gray-800">
+          </div>}
+          {rightPanelOpen && <div className="p-3 border-t border-gray-800">
             <div className="flex gap-1.5">
               <input
                 value={chatInput}
@@ -619,7 +682,7 @@ export default function CollabEditorPage() {
                 className="px-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold text-gray-950 transition"
               >→</button>
             </div>
-          </div>
+          </div>}
         </div>
       </div>
 
