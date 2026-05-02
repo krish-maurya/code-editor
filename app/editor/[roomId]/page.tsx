@@ -28,123 +28,12 @@ const colors = ["#34d399", "#f472b6", "#60a5fa", "#fbbf24", "#a78bfa", "#67e8f9"
 //   { id: "u4", name: "Yuki T", color: "#fbbf24", avatar: "YT", active: false },
 // ];
 
-const FILE_TREE: FileNode[] = [
-  {
-    name: "src", type: "folder", children: [
-      {
-        name: "app", type: "folder", children: [
-          { name: "page.tsx", type: "file", ext: "tsx" },
-          { name: "layout.tsx", type: "file", ext: "tsx" },
-          { name: "globals.css", type: "file", ext: "css" },
-        ]
-      },
-      {
-        name: "components", type: "folder", children: [
-          { name: "Editor.tsx", type: "file", ext: "tsx" },
-          { name: "Sidebar.tsx", type: "file", ext: "tsx" },
-          { name: "JoinRoom.tsx", type: "file", ext: "tsx" },
-        ]
-      },
-      {
-        name: "lib", type: "folder", children: [
-          { name: "utils.ts", type: "file", ext: "ts" },
-          { name: "socket.ts", type: "file", ext: "ts" },
-        ]
-      },
-    ]
-  },
-  {
-    name: "public", type: "folder", children: [
-      { name: "favicon.ico", type: "file", ext: "ico" },
-    ]
-  },
-  { name: "package.json", type: "file", ext: "json" },
-  { name: "tailwind.config.ts", type: "file", ext: "ts" },
-  { name: "tsconfig.json", type: "file", ext: "json" },
-];
+const INITIAL_FILE_TREE: FileNode[] = [];
 
-const INIT_TABS: Tab[] = [
-  { id: "t1", name: "page.tsx", ext: "tsx", dirty: false },
-  { id: "t2", name: "Editor.tsx", ext: "tsx", dirty: true },
-  { id: "t3", name: "socket.ts", ext: "ts", dirty: false },
-];
+const INIT_TABS: Tab[] = [];
 
-const INIT_CHAT: ChatMsg[] = [
-  { id: "c1", user: "Carlos V", color: "#60a5fa", text: "just pushed the socket reconnect fix 🔧", time: "14:02" },
-  { id: "c2", user: "Priya M", color: "#f472b6", text: "nice! checking the useEffect cleanup now", time: "14:03" },
-  { id: "c3", user: "Carlos V", color: "#60a5fa", text: "also the cursor broadcast is lagging on line 87", time: "14:04" },
-  { id: "c4", user: "You", color: "#34d399", text: "on it — debouncing the emit call", time: "14:05" },
-];
+const INIT_CHAT: ChatMsg[] = [];
 
-const CODE_CONTENT = `"use client";
-
-import { useEffect, useRef, useState } from "react";
-import { io, Socket } from "socket.io-client";
-
-interface EditorProps {
-  roomId: string;
-  userName: string;
-}
-
-export default function Editor({ roomId, userName }: EditorProps) {
-  const socketRef = useRef<Socket | null>(null);
-  const [code, setCode] = useState<string>("");
-  const [cursors, setCursors] = useState<Record<string, number>>({});
-  const [connected, setConnected] = useState(false);
-
-  useEffect(() => {
-    socketRef.current = io(process.env.NEXT_PUBLIC_WS_URL!, {
-      query: { roomId, userName },
-      reconnectionAttempts: 5,
-    });
-
-    const socket = socketRef.current;
-
-    socket.on("connect", () => setConnected(true));
-    socket.on("disconnect", () => setConnected(false));
-
-    socket.on("code:sync", (incoming: string) => {
-      setCode(incoming);
-    });
-
-    socket.on("cursor:update", (data: { user: string; pos: number }) => {
-      setCursors((prev) => ({ ...prev, [data.user]: data.pos }));
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [roomId, userName]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    setCode(val);
-    socketRef.current?.emit("code:change", { roomId, code: val });
-  };
-
-  const handleCursorMove = (e: React.MouseEvent<HTMLTextAreaElement>) => {
-    const pos = (e.target as HTMLTextAreaElement).selectionStart;
-    socketRef.current?.emit("cursor:move", { roomId, userName, pos });
-  };
-
-  return (
-    <div className="relative h-full w-full">
-      <textarea
-        value={code}
-        onChange={handleChange}
-        onClick={handleCursorMove}
-        onKeyUp={handleCursorMove}
-        className="w-full h-full bg-transparent resize-none outline-none
-                   font-mono text-sm text-gray-200 p-4 leading-6"
-        spellCheck={false}
-      />
-      <div className="absolute top-2 right-3 flex items-center gap-1.5">
-        <span className={\`w-1.5 h-1.5 rounded-full \${connected ? "bg-emerald-400" : "bg-red-500"}\`} />
-        <span className="text-xs text-gray-600">{connected ? "live" : "offline"}</span>
-      </div>
-    </div>
-  );
-}`;
 
 const TERMINAL_LINES = [
   { t: "cmd", v: "$ npm run dev" },
@@ -160,13 +49,13 @@ const TERMINAL_LINES = [
 // ─── Helpers ────────────────────────────────────────────
 const EXT_COLOR: Record<string, string> = {
   tsx: "text-sky-400", ts: "text-blue-400", css: "text-pink-400",
-  json: "text-yellow-400", ico: "text-gray-500",
+  js: "text-yellow-400", jsx: "text-yellow-400", json: "text-yellow-400", ico: "text-gray-500",
 };
 const extColor = (ext = "") => EXT_COLOR[ext] ?? "text-gray-400";
 
 const EXT_DOT: Record<string, string> = {
   tsx: "bg-sky-400", ts: "bg-blue-400", css: "bg-pink-400",
-  json: "bg-yellow-400",
+  js: "bg-yellow-400", jsx: "bg-yellow-400", json: "bg-yellow-400",
 };
 const extDot = (ext = "") => EXT_DOT[ext] ?? "bg-gray-500";
 
@@ -226,7 +115,12 @@ function FileTree({ nodes, depth = 0, onOpen }: { nodes: FileNode[]; depth?: num
 export default function CollabEditorPage() {
   const [tabs, setTabs] = useState<Tab[]>(INIT_TABS);
   const [activeTab, setActiveTab] = useState("t2");
-  const [code, setCode] = useState(CODE_CONTENT);
+  const [code, setCode] = useState('');
+  const [tabCodeMap, setTabCodeMap] = useState<Record<string, string>>({});
+  const [fileTree, setFileTree] = useState<FileNode[]>(INITIAL_FILE_TREE);
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+  const [renamingValue, setRenamingValue] = useState<string>("");
+  const [renamingOriginalName, setRenamingOriginalName] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>(INIT_CHAT);
   const [termOpen, setTermOpen] = useState(true);
@@ -238,6 +132,7 @@ export default function CollabEditorPage() {
   const [USERS, setUSERS] = useState<User[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<any>(null);
+  const activeTabRef = useRef<string>(activeTab);
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -315,6 +210,10 @@ export default function CollabEditorPage() {
 
         if (code !== currentCode) {
           setCode(code);
+          const currentTabId = activeTabRef.current;
+          if (currentTabId) {
+            setTabCodeMap((prev) => ({ ...prev, [currentTabId]: code }));
+          }
         }
       })
 
@@ -339,6 +238,18 @@ export default function CollabEditorPage() {
   }, []);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMsgs]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!activeTab) {
+      setCode("");
+      return;
+    }
+    setCode(tabCodeMap[activeTab] ?? "");
+  }, [activeTab, tabCodeMap]);
 
   const sendChat = useCallback(() => {
     if (!chatInput.trim()) return;
@@ -368,13 +279,59 @@ export default function CollabEditorPage() {
     }
     const id = `t${Date.now()}`;
     setTabs((p) => [...p, { id, name: n.name, ext: n.ext ?? "", dirty: false }]);
+    setTabCodeMap((p) => ({ ...p, [id]: p[id] ?? "" }));
     setActiveTab(id);
+  };
+
+  const handleCreateFile = () => {
+    // create a new untitled file with incremental suffix, no prompt
+    const base = "untitled";
+    let idx = 1;
+    const existingNames = new Set([...fileTree.map(f => f.name), ...tabs.map(t => t.name)]);
+    let name = "";
+    while (true) {
+      name = `${base}${idx}.tsx`;
+      if (!existingNames.has(name)) break;
+      idx += 1;
+    }
+    const ext = "tsx";
+    const newNode: FileNode = { name, type: 'file', ext };
+    setFileTree((p) => [...p, newNode]);
+    const id = `t${Date.now()}`;
+    setTabs((p) => [...p, { id, name: newNode.name, ext: newNode.ext ?? "", dirty: false }]);
+    setTabCodeMap((p) => ({ ...p, [id]: "" }));
+    setActiveTab(id);
+    // start inline rename like VS Code
+    setRenamingTabId(id);
+    setRenamingValue(newNode.name);
+    setRenamingOriginalName(newNode.name);
+  };
+
+  const commitRename = (tabId: string) => {
+    const newName = renamingValue.trim() || `untitled.tsx`;
+    const ext = newName.split('.').pop() ?? "";
+
+    setTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, name: newName, ext } : t));
+    setFileTree((prev) => prev.map((f) => {
+      if (f.name === (renamingOriginalName ?? renamingValue)) {
+        return { ...f, name: newName, ext };
+      }
+      return f;
+    }));
+    setRenamingTabId(null);
+    setRenamingValue("");
+    setRenamingOriginalName(null);
   };
 
   const closeTab = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const next = tabs.filter((t) => t.id !== id);
     setTabs(next);
+    setTabCodeMap((p) => {
+      const nextMap = { ...p };
+      delete nextMap[id];
+      return nextMap;
+    });
     if (activeTab === id) setActiveTab(next[next.length - 1]?.id ?? "");
   };
 
@@ -481,13 +438,26 @@ export default function CollabEditorPage() {
             onClick={() => setLeftPanelOpen((p) => !p)}
             title={leftPanelOpen ? "Collapse panel" : "Expand panel"}
           >
-            <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600 whitespace-nowrap">{sidePanel}</span>
-            <span className="text-xs text-gray-700">{leftPanelOpen ? "◂" : "▸"}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600 whitespace-nowrap">{sidePanel}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {sidePanel === "files" && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCreateFile(); }}
+                  title="Create file"
+                  className="text-xs text-gray-700 hover:bg-gray-800/40 px-2 py-0.5 rounded transition"
+                >
+                  +
+                </button>
+              )}
+              <span className="text-xs text-gray-700">{leftPanelOpen ? "◂" : "▸"}</span>
+            </div>
           </div>
 
           {leftPanelOpen && <div className="flex-1 overflow-y-auto py-1 scrollbar-thin">
             {sidePanel === "files" && (
-              <FileTree nodes={FILE_TREE} onOpen={openFile} />
+              <FileTree nodes={fileTree} onOpen={openFile} />
             )}
 
             {sidePanel === "users" && (
@@ -561,7 +531,25 @@ export default function CollabEditorPage() {
                     : "text-gray-600 hover:text-gray-400 hover:bg-[#0d1117]/60"}`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${extDot(t.ext)}`} />
-                <span className="font-mono">{t.name}</span>
+                {t.id === renamingTabId ? (
+                  <input
+                    value={renamingValue}
+                    onChange={(e) => setRenamingValue(e.target.value)}
+                    onBlur={() => commitRename(t.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitRename(t.id);
+                      if (e.key === 'Escape') {
+                        setRenamingTabId(null);
+                        setRenamingValue("");
+                        setRenamingOriginalName(null);
+                      }
+                    }}
+                    autoFocus
+                    className="bg-[#0d1117] border border-gray-700 px-1 py-0.5 rounded text-xs font-mono w-36"
+                  />
+                ) : (
+                  <span className="font-mono">{t.name}</span>
+                )}
                 {t.dirty && <span className="text-orange-400 text-[10px]">●</span>}
                 <button
                   onClick={(e) => closeTab(t.id, e)}
@@ -569,6 +557,7 @@ export default function CollabEditorPage() {
                 >✕</button>
               </div>
             ))}
+            {/* create-file button removed from tab bar (kept in left panel header) */}
             <div className="flex-1" />
             {/* Breadcrumb */}
             {activeTabData && (
@@ -611,6 +600,9 @@ export default function CollabEditorPage() {
                 }}
                 onChange={(value) => {
                   setCode(value);
+                  if (activeTab) {
+                    setTabCodeMap((prev) => ({ ...prev, [activeTab]: value }));
+                  }
                   socketRef.current.emit(ACTIONS.CODE_CHANGE, {
                     roomId,
                     code: value,
