@@ -77,16 +77,21 @@ io.on("connection", (socket) => {
     })
   });
 
+  socket.on(ACTIONS.CHAT_MESSAGE, ({ roomId, message }) => {
+    socket.to(roomId).emit(ACTIONS.CHAT_MESSAGE, { message });
+  });
+
   socket.on(ACTIONS.LEAVE, ({ roomId }) => {
+    const leavingUser = userSocketMap[socket.id];
+
     socket.leave(roomId);
-    delete userSocketMap[socket.id];
-    const clients = getAllConnectedClients(roomId);
-    clients.forEach(({ socketId }) => {
-      io.to(socketId).emit(ACTIONS.DISCONNECTED, {
-        socketId: socket.id,
-        userName: userSocketMap[socket.id]
-      })
+
+    socket.to(roomId).emit(ACTIONS.DISCONNECTED, {
+      socketId: socket.id,
+      userName: leavingUser,
     });
+
+    delete userSocketMap[socket.id];
   });
 });
 

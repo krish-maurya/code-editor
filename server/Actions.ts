@@ -4,7 +4,7 @@ const ACTIONS = {
   CODE_CHANGE: "code-change",
   SYNC_CODE: "sync-code",
   DISCONNECTED: "disconnected",
-  SEND_MESSAGE: "send-message",
+  CHAT_MESSAGE: "chat:message",
   LEAVE: "leave",
 };
 

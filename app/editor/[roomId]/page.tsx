@@ -300,10 +300,11 @@ export default function CollabEditorPage() {
       // Listen for the "DISCONNECTED" event from the server
 
       socketRef.current.on(ACTIONS.DISCONNECTED, ({ socketId, userName }: { socketId: string, userName: string }) => {
-        toast.success(`${userName} left the room!`, {
-          icon: "👋",
-        });
-        setUSERS((p) => p.filter((u) => u.id !== socketId));
+        setUSERS((prev) =>
+          prev.map((u) =>
+            u.id === socketId ? { ...u, active: false } : u
+          )
+        );
       });
 
       // code sync and cursor updates will be handled in separate useEffects
@@ -317,6 +318,10 @@ export default function CollabEditorPage() {
         }
       })
 
+      socketRef.current.on(ACTIONS.CHAT_MESSAGE, ({ message }: { message: ChatMsg }) => {
+        setChatMsgs((p) => [...p, message]);
+      })
+
       socketRef.current.emit(ACTIONS.JOIN, { roomId: roomId, userName: user ?? "Anonymous" });
     }
 
@@ -326,7 +331,8 @@ export default function CollabEditorPage() {
     return () => {
       socketRef.current?.off(ACTIONS.JOINED);
       socketRef.current?.off(ACTIONS.DISCONNECTED);
-      socketRef.current?.off(ACTIONS.CODE_CHANGE);
+      socketRef.current?.off(ACTIONS.SYNC_CODE);
+      socketRef.current?.off(ACTIONS.CHAT_MESSAGE);
       socketRef.current?.disconnect();
     }
 
@@ -336,11 +342,22 @@ export default function CollabEditorPage() {
 
   const sendChat = useCallback(() => {
     if (!chatInput.trim()) return;
-    setChatMsgs((p) => [...p, {
-      id: `c${Date.now()}`, user: "You", color: "#34d399",
+
+    const msg = {
+      id: `c${Date.now()}`,
+      user: user || "Anonymous",
+      color: USERS.find(u => u.name === user)?.color || "#34d399",
       text: chatInput.trim(),
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    }]);
+    }
+
+
+    socketRef.current.emit(ACTIONS.CHAT_MESSAGE, {
+      roomId,
+      message: msg
+    })
+
+    setChatMsgs((p) => [...p, msg]);
     setChatInput("");
   }, [chatInput]);
 
@@ -377,14 +394,14 @@ export default function CollabEditorPage() {
     }
   };
 
-  const handleLeave = () =>{
+  const handleLeave = () => {
     if (socketRef.current) {
       socketRef.current.emit(ACTIONS.LEAVE, { roomId, userName: user });
       socketRef.current.disconnect();
       router.push('/');
       toast.success("You left the room.", {
         icon: "👋"
-        }); 
+      });
     }
   }
 
