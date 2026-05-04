@@ -2,16 +2,15 @@
 
 import ACTIONS from "@/server/Actions";
 import { initSocket } from "@/server/socket";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { syncSpaceHighlight, syncSpaceTheme } from "@/theme";
 import { javascript } from "@codemirror/lang-javascript";
 import CodeMirror from "@uiw/react-codemirror";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { use, useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
 
 // ─── Types ──────────────────────────────────────────────
-type FileNode = { name: string; type: "file" | "folder"; ext?: string; children?: FileNode[] };
 type User = { id: string; name: string; color: string; avatar: string; active: boolean };
 type ChatMsg = { id: string; user: string; color: string; text: string; time: string };
 type Tab = { id: string; name: string; ext: string; dirty: boolean };
@@ -21,37 +20,9 @@ const PLATFORM = "SyncSpace";
 
 const colors = ["#34d399", "#f472b6", "#60a5fa", "#fbbf24", "#a78bfa", "#67e8f9", "#f87171", "#6ee7b7"];
 
-// const USERS: User[] = [
-//   { id: "u1", name: "You", color: "#34d399", avatar: "Y", active: true },
-//   { id: "u2", name: "Priya M", color: "#f472b6", avatar: "PM", active: true },
-//   { id: "u3", name: "Carlos V", color: "#60a5fa", avatar: "CV", active: true },
-//   { id: "u4", name: "Yuki T", color: "#fbbf24", avatar: "YT", active: false },
-// ];
-
-const INITIAL_FILE_TREE: FileNode[] = [];
-
-const INIT_TABS: Tab[] = [];
+const INIT_TABS: Tab[] = [{ id: "t1", name: "Workspace", ext: "tsx", dirty: false }];
 
 const INIT_CHAT: ChatMsg[] = [];
-
-
-const TERMINAL_LINES = [
-  { t: "cmd", v: "$ npm run dev" },
-  { t: "info", v: "▸ Next.js 15.2.0" },
-  { t: "info", v: "▸ Local:   http://localhost:3000" },
-  { t: "info", v: "▸ Network: http://192.168.1.5:3000" },
-  { t: "ok", v: "✓ Ready in 847ms" },
-  { t: "log", v: "[socket] client u2 joined room XKCD-9A3F-B71E" },
-  { t: "log", v: "[socket] client u3 joined room XKCD-9A3F-B71E" },
-  { t: "warn", v: "⚠ cursor broadcast debounce: 120ms → consider 60ms" },
-];
-
-// ─── Helpers ────────────────────────────────────────────
-const EXT_COLOR: Record<string, string> = {
-  tsx: "text-sky-400", ts: "text-blue-400", css: "text-pink-400",
-  js: "text-yellow-400", jsx: "text-yellow-400", json: "text-yellow-400", ico: "text-gray-500",
-};
-const extColor = (ext = "") => EXT_COLOR[ext] ?? "text-gray-400";
 
 const EXT_DOT: Record<string, string> = {
   tsx: "bg-sky-400", ts: "bg-blue-400", css: "bg-pink-400",
@@ -59,74 +30,19 @@ const EXT_DOT: Record<string, string> = {
 };
 const extDot = (ext = "") => EXT_DOT[ext] ?? "bg-gray-500";
 
-function FileIcon({ ext }: { ext?: string }) {
-  const c = extColor(ext);
-  return <span className={`text-xs font-bold font-mono ${c}`}>{(ext ?? "?").slice(0, 3)}</span>;
-}
-
-// ─── Sub-components ─────────────────────────────────────
-function FileTree({ nodes, depth = 0, onOpen }: { nodes: FileNode[]; depth?: number; onOpen: (n: FileNode) => void }) {
-  const [open, setOpen] = useState<Set<string>>(new Set(["src", "components"]));
-  return (
-    <ul className="text-xs leading-none">
-      {nodes.map((n) => (
-        <li key={n.name}>
-          {n.type === "folder" ? (
-            <>
-              <button
-                onClick={() => setOpen((p) => {
-                  const s = new Set(p);
-                  if (s.has(n.name)) {
-                    s.delete(n.name);
-                  } else {
-                    s.add(n.name);
-                  }
-                  return s;
-                })}
-                style={{ paddingLeft: `${depth * 12 + 8}px` }}
-                className="flex items-center gap-1.5 w-full py-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 rounded transition"
-              >
-                <span className="text-gray-600">{open.has(n.name) ? "▾" : "▸"}</span>
-                <span className="text-gray-500">📁</span>
-                <span>{n.name}</span>
-              </button>
-              {open.has(n.name) && n.children && (
-                <FileTree nodes={n.children} depth={depth + 1} onOpen={onOpen} />
-              )}
-            </>
-          ) : (
-            <button
-              onClick={() => onOpen(n)}
-              style={{ paddingLeft: `${depth * 12 + 8}px` }}
-              className="flex items-center gap-1.5 w-full py-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 rounded transition"
-            >
-              <span className="w-3" />
-              <FileIcon ext={n.ext} />
-              <span className="truncate">{n.name}</span>
-            </button>
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 // ─── Main Page ──────────────────────────────────────────
 export default function CollabEditorPage() {
   const [tabs, setTabs] = useState<Tab[]>(INIT_TABS);
-  const [activeTab, setActiveTab] = useState("t2");
+  const [activeTab, setActiveTab] = useState(INIT_TABS[0].id);
   const [code, setCode] = useState('');
   const [tabCodeMap, setTabCodeMap] = useState<Record<string, string>>({});
-  const [fileTree, setFileTree] = useState<FileNode[]>(INITIAL_FILE_TREE);
-  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
-  const [renamingValue, setRenamingValue] = useState<string>("");
-  const [renamingOriginalName, setRenamingOriginalName] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>(INIT_CHAT);
   const [termOpen, setTermOpen] = useState(true);
+  const [terminalOutput, setTerminalOutput] = useState<Array<{ type: string, value: string }>>([]);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
-  const [sidePanel, setSidePanel] = useState<"files" | "users" | "chat">("files");
+  const [sidePanel, setSidePanel] = useState<"users" | "chat">("users");
   const [leftWidth] = useState(220);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [USERS, setUSERS] = useState<User[]>([]);
@@ -172,6 +88,12 @@ export default function CollabEditorPage() {
       socketRef.current.on('connect_error', (err: any) => { handleErrors(err) });
       socketRef.current.on('connect_failed', (err: any) => { handleErrors(err) });
 
+      // Remove any existing listeners before adding new ones
+      socketRef.current.off(ACTIONS.JOINED);
+      socketRef.current.off(ACTIONS.DISCONNECTED);
+      socketRef.current.off(ACTIONS.SYNC_CODE);
+      socketRef.current.off(ACTIONS.CHAT_MESSAGE);
+
       // Listen for the "JOINED" event from the server
 
       socketRef.current.on(ACTIONS.JOINED, ({ clients, userName, socketId }: { clients: any[], userName: string, socketId: string }) => {
@@ -179,17 +101,31 @@ export default function CollabEditorPage() {
         if (userName !== user) {
           toast.success(`${userName} joined the room!`, {
             icon: "👋",
+            id: `join-${userName}`,
           });
         }
-        setUSERS(clients.map((c) => {
-          return {
-            id: c.socketId,
-            name: c.userName,
-            color: colors[Math.floor(Math.random() * colors.length)],
-            avatar: getAvatar(c.userName),
-            active: true,
-          }
-        }));
+        setUSERS((prev) => {
+          // Create map of latest sessions by username
+          const latestByName: Record<string, any> = {};
+
+          // Add existing users
+          prev.forEach(u => {
+            latestByName[u.name] = u;
+          });
+
+          // Update/add clients from server (server version takes precedence)
+          clients.forEach((c) => {
+            latestByName[c.userName] = {
+              id: c.socketId,
+              name: c.userName,
+              color: latestByName[c.userName]?.color || colors[Math.floor(Math.random() * colors.length)],
+              avatar: getAvatar(c.userName),
+              active: true,
+            };
+          });
+
+          return Object.values(latestByName);
+        });
       });
 
       // Listen for the "DISCONNECTED" event from the server
@@ -272,57 +208,6 @@ export default function CollabEditorPage() {
     setChatInput("");
   }, [chatInput]);
 
-  const openFile = (n: FileNode) => {
-    if (tabs.find((t) => t.name === n.name)) {
-      setActiveTab(tabs.find((t) => t.name === n.name)!.id);
-      return;
-    }
-    const id = `t${Date.now()}`;
-    setTabs((p) => [...p, { id, name: n.name, ext: n.ext ?? "", dirty: false }]);
-    setTabCodeMap((p) => ({ ...p, [id]: p[id] ?? "" }));
-    setActiveTab(id);
-  };
-
-  const handleCreateFile = () => {
-    // create a new untitled file with incremental suffix, no prompt
-    const base = "untitled";
-    let idx = 1;
-    const existingNames = new Set([...fileTree.map(f => f.name), ...tabs.map(t => t.name)]);
-    let name = "";
-    while (true) {
-      name = `${base}${idx}.tsx`;
-      if (!existingNames.has(name)) break;
-      idx += 1;
-    }
-    const ext = "tsx";
-    const newNode: FileNode = { name, type: 'file', ext };
-    setFileTree((p) => [...p, newNode]);
-    const id = `t${Date.now()}`;
-    setTabs((p) => [...p, { id, name: newNode.name, ext: newNode.ext ?? "", dirty: false }]);
-    setTabCodeMap((p) => ({ ...p, [id]: "" }));
-    setActiveTab(id);
-    // start inline rename like VS Code
-    setRenamingTabId(id);
-    setRenamingValue(newNode.name);
-    setRenamingOriginalName(newNode.name);
-  };
-
-  const commitRename = (tabId: string) => {
-    const newName = renamingValue.trim() || `untitled.tsx`;
-    const ext = newName.split('.').pop() ?? "";
-
-    setTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, name: newName, ext } : t));
-    setFileTree((prev) => prev.map((f) => {
-      if (f.name === (renamingOriginalName ?? renamingValue)) {
-        return { ...f, name: newName, ext };
-      }
-      return f;
-    }));
-    setRenamingTabId(null);
-    setRenamingValue("");
-    setRenamingOriginalName(null);
-  };
-
   const closeTab = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const next = tabs.filter((t) => t.id !== id);
@@ -342,11 +227,13 @@ export default function CollabEditorPage() {
       navigator.clipboard.writeText(roomId).then(() => {
         toast.success("Room URL copied to clipboard!", {
           icon: "🔗",
+          id: "copy-room-url",
         });
       });
     } catch (error) {
       toast.error("Failed to copy room URL.", {
         icon: "❌",
+        id: "copy-room-error",
       });
     }
   };
@@ -357,14 +244,19 @@ export default function CollabEditorPage() {
       socketRef.current.disconnect();
       router.push('/');
       toast.success("You left the room.", {
-        icon: "👋"
+        icon: "👋",
+        id: "leave-room",
       });
     }
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#0d1117] text-gray-300 overflow-hidden font-['JetBrains_Mono',monospace] select-none">
-
+    <div
+      className="flex flex-col h-screen text-gray-300 overflow-hidden font-['JetBrains_Mono',monospace] select-none"
+      style={{
+        backgroundColor: "#0d1117",
+      }}
+    >
       {/* ── TOP BAR ── */}
       <header className="flex items-center justify-between px-4 h-11 bg-[#161b22] border-b border-gray-800 shrink-0 z-10">
         {/* Left: logo + room */}
@@ -399,7 +291,59 @@ export default function CollabEditorPage() {
         <div className="flex items-center gap-2">
           <button onClick={handleLeave} className="text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-md transition">Leave</button>
           <button onClick={handleShare} className="text-xs text-gray-400 bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-md transition">Share</button>
-          <button className="text-xs text-emerald-900 bg-emerald-500 hover:bg-emerald-400 px-3 py-1 rounded-md font-bold transition">
+          <button onClick={() => {
+            const output: Array<{ type: string, value: string }> = [];
+
+            // Override console methods to capture output
+            const originalLog = console.log;
+            const originalError = console.error;
+            const originalWarn = console.warn;
+            const originalInfo = console.info;
+
+            console.log = (...args: any[]) => {
+              const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+              output.push({ type: 'log', value: message });
+            };
+
+            console.error = (...args: any[]) => {
+              const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+              output.push({ type: 'error', value: message });
+            };
+
+            console.warn = (...args: any[]) => {
+              const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+              output.push({ type: 'warn', value: message });
+            };
+
+            console.info = (...args: any[]) => {
+              const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+              output.push({ type: 'info', value: message });
+            };
+
+            try {
+              const result = eval(code);
+              if (result !== undefined) {
+                output.push({ type: 'result', value: `Result: ${typeof result === 'object' ? JSON.stringify(result) : String(result)}` });
+              }
+              output.push({ type: 'success', value: '✓ Code executed successfully' });
+              setTerminalOutput(output);
+              toast.success("Code executed!", {
+                id: "code-exec-success",
+              });
+            } catch (err) {
+              output.push({ type: 'error', value: `Error: ${err instanceof Error ? err.message : String(err)}` });
+              setTerminalOutput(output);
+              toast.error("Error running code", {
+                id: "code-exec-error",
+              });
+            } finally {
+              // Restore original console methods
+              console.log = originalLog;
+              console.error = originalError;
+              console.warn = originalWarn;
+              console.info = originalInfo;
+            }
+          }} className="text-xs text-emerald-900 bg-emerald-500 hover:bg-emerald-400 px-3 py-1 rounded-md font-bold transition">
             Run ▶
           </button>
         </div>
@@ -409,8 +353,8 @@ export default function CollabEditorPage() {
 
         {/* ── ICON RAIL ── */}
         <div className="flex flex-col items-center gap-1 w-10 bg-[#161b22] border-r border-gray-800 py-2 shrink-0">
-          {(["files", "users", "chat"] as const).map((p) => {
-            const icons = { files: "🗂", users: "👥", chat: "💬" };
+          {(["users", "chat"] as const).map((p) => {
+            const icons = { users: "👥", chat: "💬" };
             return (
               <button
                 key={p}
@@ -442,24 +386,11 @@ export default function CollabEditorPage() {
               <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600 whitespace-nowrap">{sidePanel}</span>
             </div>
             <div className="flex items-center gap-2">
-              {sidePanel === "files" && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleCreateFile(); }}
-                  title="Create file"
-                  className="text-xs text-gray-700 hover:bg-gray-800/40 px-2 py-0.5 rounded transition"
-                >
-                  +
-                </button>
-              )}
               <span className="text-xs text-gray-700">{leftPanelOpen ? "◂" : "▸"}</span>
             </div>
           </div>
 
           {leftPanelOpen && <div className="flex-1 overflow-y-auto py-1 scrollbar-thin">
-            {sidePanel === "files" && (
-              <FileTree nodes={fileTree} onOpen={openFile} />
-            )}
-
             {sidePanel === "users" && (
               <div className="p-2 flex flex-col gap-1">
                 {USERS.map((u) => (
@@ -531,25 +462,7 @@ export default function CollabEditorPage() {
                     : "text-gray-600 hover:text-gray-400 hover:bg-[#0d1117]/60"}`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${extDot(t.ext)}`} />
-                {t.id === renamingTabId ? (
-                  <input
-                    value={renamingValue}
-                    onChange={(e) => setRenamingValue(e.target.value)}
-                    onBlur={() => commitRename(t.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitRename(t.id);
-                      if (e.key === 'Escape') {
-                        setRenamingTabId(null);
-                        setRenamingValue("");
-                        setRenamingOriginalName(null);
-                      }
-                    }}
-                    autoFocus
-                    className="bg-[#0d1117] border border-gray-700 px-1 py-0.5 rounded text-xs font-mono w-36"
-                  />
-                ) : (
-                  <span className="font-mono">{t.name}</span>
-                )}
+                <span className="font-mono">{t.name}</span>
                 {t.dirty && <span className="text-orange-400 text-[10px]">●</span>}
                 <button
                   onClick={(e) => closeTab(t.id, e)}
@@ -557,14 +470,7 @@ export default function CollabEditorPage() {
                 >✕</button>
               </div>
             ))}
-            {/* create-file button removed from tab bar (kept in left panel header) */}
             <div className="flex-1" />
-            {/* Breadcrumb */}
-            {activeTabData && (
-              <div className="px-4 text-[10px] text-gray-700 shrink-0 whitespace-nowrap">
-                src / components / <span className={extColor(activeTabData.ext)}>{activeTabData.name}</span>
-              </div>
-            )}
           </div>
 
           {/* Code + Terminal */}
@@ -625,25 +531,25 @@ export default function CollabEditorPage() {
                 onClick={() => setTermOpen((p) => !p)}
               >
                 <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600">Terminal</span>
-                <span className="text-[9px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">npm run dev</span>
+                <span className="text-[9px] text-emerald-500 bg-e`merald-500/10 px-1.5 py-0.5 rounded">• LIVE</span>
                 <div className="flex-1" />
                 <span className="text-gray-700 text-xs">{termOpen ? "▾" : "▴"}</span>
               </div>
               {termOpen && (
                 <div className="p-3 overflow-y-auto h-36 text-[11px] leading-5 font-mono">
-                  {TERMINAL_LINES.map((l, i) => (
-                    <div key={i} className={
-                      l.t === "cmd" ? "text-white" :
-                        l.t === "info" ? "text-gray-500" :
-                          l.t === "ok" ? "text-emerald-400" :
-                            l.t === "warn" ? "text-yellow-400" :
-                              "text-gray-600"
-                    }>{l.v}</div>
-                  ))}
-                  <div className="flex items-center gap-1 mt-1">
-                    <span className="text-emerald-400">$</span>
-                    <span className="w-1.5 h-3.5 bg-emerald-400 animate-pulse inline-block ml-0.5" />
-                  </div>
+                  {terminalOutput.length === 0 ? (
+                    <div className="text-gray-600">Click "Run ▶" to execute code and see output here...</div>
+                  ) : (
+                    <>
+                      {terminalOutput.map((line, i) => (
+                        <div key={i} className={line.type === 'log' ? 'text-gray-400' : line.type === 'error' ? 'text-red-400' : line.type === 'warn' ? 'text-yellow-400' : line.type === 'info' ? 'text-blue-400' : line.type === 'result' ? 'text-emerald-400' : line.type === 'success' ? 'text-emerald-400' : 'text-gray-600'}>{line.value}</div>
+                      ))}
+                      <div className="flex items-center gap-1 mt-2">
+                        <span className="text-emerald-400">$</span>
+                        <span className="w-1.5 h-3.5 bg-emerald-400 animate-pulse inline-block ml-0.5" />
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
