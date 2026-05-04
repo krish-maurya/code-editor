@@ -528,8 +528,7 @@ export default function CollabEditorPage() {
             <div className={`shrink-0 border-t border-gray-800 bg-[#0a0f14] transition-all ${termOpen ? "h-44" : "h-8"}`}>
               <div
                 className="flex items-center gap-3 px-4 h-8 border-b border-gray-800 cursor-pointer hover:bg-gray-800/40 transition"
-                onClick={() => setTermOpen((p) => !p)}
-              >
+                onClick={() => setTermOpen((p) => !p)}>
                 <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600">Terminal</span>
                 <span className="text-[9px] text-emerald-500 bg-e`merald-500/10 px-1.5 py-0.5 rounded">• LIVE</span>
                 <div className="flex-1" />
