@@ -74,14 +74,13 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-10 py-4 transition-all duration-300">
         <Link href="#" className="flex items-center gap-2 no-underline">
           <span className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center" style={{ animation: "pulsedot 2.5s ease infinite" }}>
-            <span className="w-1.5 h-1.5 rounded-full bg-black" />
           </span>
           <span className="font-serif text-lg text-slate-200 font-normal">SyncSpace</span>
         </Link>
         <div className="flex gap-8">
           {NAV_LINKS.map((l) => <Link key={l} href={`#${l.toLowerCase().replace(/ /g,"-")}`} className="text-xs text-slate-400 no-underline tracking-widest transition-colors duration-150 hover:text-slate-200">{l}</Link>)}
         </div>
-        <Link href="#cta" className="inline-block bg-emerald-500 text-black font-sans text-sm font-medium px-4 py-2 rounded transition-all duration-200 hover:bg-emerald-400 hover:shadow-lg">Start coding →</Link>
+        <Link href="/editor" className="inline-block bg-emerald-500 text-black font-sans text-sm font-medium px-4 py-2 rounded transition-all duration-200 hover:bg-emerald-400 hover:shadow-lg">Start coding →</Link>
       </nav>
 
       {/* HERO */}
