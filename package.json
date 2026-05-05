@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "dev:server": "npx tsx server/server.ts",
-    "build:server": "tsc",
-    "start:server": "node dist/server/server.js",
+    "build:server": "tsc -p tsconfig.server.json",
+    "start:server": "node dist/server.js",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
