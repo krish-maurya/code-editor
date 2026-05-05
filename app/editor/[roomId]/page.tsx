@@ -8,6 +8,7 @@ import { syncSpaceHighlight, syncSpaceTheme } from "@/theme";
 import { javascript } from "@codemirror/lang-javascript";
 import CodeMirror from "@uiw/react-codemirror";
 import toast from "react-hot-toast";
+import { CheckCircle, Hand, Link, MessageSquare, UserMinus, UserPlus, UserRoundPlus, UserRoundX, Users, XCircle } from "lucide-react";
 
 
 // ─── Types ──────────────────────────────────────────────
@@ -100,7 +101,7 @@ export default function CollabEditorPage() {
         console.log("JOINED EVENT:", clients);
         if (userName !== user) {
           toast.success(`${userName} joined the room!`, {
-            icon: "👋",
+            icon: <UserRoundPlus className="w-4 h-4 text-emerald-400" />,
             id: `join-${userName}`,
           });
         }
@@ -226,13 +227,13 @@ export default function CollabEditorPage() {
     try {
       navigator.clipboard.writeText(roomId).then(() => {
         toast.success("Room URL copied to clipboard!", {
-          icon: "🔗",
+          icon: <Link className="w-4 h-4 text-emerald-400" />,
           id: "copy-room-url",
         });
       });
     } catch (error) {
       toast.error("Failed to copy room URL.", {
-        icon: "❌",
+        icon: <XCircle className="w-4 h-4 text-red-400" />,
         id: "copy-room-error",
       });
     }
@@ -244,7 +245,7 @@ export default function CollabEditorPage() {
       socketRef.current.disconnect();
       router.push('/');
       toast.success("You left the room.", {
-        icon: "👋",
+        icon: <CheckCircle className="w-4 h-4 text-emerald-400" />,
         id: "leave-room",
       });
     }
@@ -263,7 +264,7 @@ export default function CollabEditorPage() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-emerald-400 text-xs font-bold tracking-widest uppercase">{PLATFORM}</span>
+            <span className="text-emerald-400 text-xs font-bold tracking-widest uppercase">SyncSpace</span>
           </div>
           <span className="text-gray-700">|</span>
           <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded font-mono">{roomId}</span>
@@ -354,7 +355,10 @@ export default function CollabEditorPage() {
         {/* ── ICON RAIL ── */}
         <div className="flex flex-col items-center gap-1 w-10 bg-[#161b22] border-r border-gray-800 py-2 shrink-0">
           {(["users", "chat"] as const).map((p) => {
-            const icons = { users: "👥", chat: "💬" };
+            const icons = {
+              users: <Users size={18} />,
+              chat: <MessageSquare size={18} />,
+            };
             return (
               <button
                 key={p}
@@ -530,7 +534,7 @@ export default function CollabEditorPage() {
                 className="flex items-center gap-3 px-4 h-8 border-b border-gray-800 cursor-pointer hover:bg-gray-800/40 transition"
                 onClick={() => setTermOpen((p) => !p)}>
                 <span className="text-[10px] font-bold tracking-widest uppercase text-gray-600">Terminal</span>
-                <span className="text-[9px] text-emerald-500 bg-e`merald-500/10 px-1.5 py-0.5 rounded">• LIVE</span>
+                <span className="text-[9px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">• LIVE</span>
                 <div className="flex-1" />
                 <span className="text-gray-700 text-xs">{termOpen ? "▾" : "▴"}</span>
               </div>
@@ -609,7 +613,7 @@ export default function CollabEditorPage() {
         <span className="text-[10px] text-emerald-900">Ln {cursor.line}, Col {cursor.col}</span>
         <div className="flex-1" />
         <span className="text-[10px] text-emerald-900">
-          {USERS.filter((u) => u.active).length} collaborators · {PLATFORM}
+          {USERS.filter((u) => u.active).length} collaborators · SyncSpace
         </span>
         <span className="text-[10px] text-emerald-800">|</span>
         <span className="text-[10px] text-emerald-950 font-bold">● Live</span>
